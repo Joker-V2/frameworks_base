@@ -37,6 +37,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.requiredHeightIn
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
@@ -145,6 +147,8 @@ import com.android.systemui.qs.composefragment.ui.quickQuickSettingsToQuickSetti
 import com.android.systemui.qs.composefragment.ui.toEditMode
 import com.android.systemui.qs.composefragment.viewmodel.QSFragmentComposeViewModel
 import com.android.systemui.qs.footer.ui.compose.FooterActions
+import com.android.systemui.qs.panels.ui.compose.LocalQsBelowPagerSlot
+import com.android.systemui.qs.panels.ui.compose.QsBelowPagerSlot
 import com.android.systemui.qs.panels.shared.model.QSFragmentComposeClippingTableLog
 import com.android.systemui.qs.panels.ui.compose.EditMode
 import com.android.systemui.qs.panels.ui.compose.QuickQuickSettings
@@ -958,7 +962,13 @@ constructor(
                             Color.Transparent,
                             ContainerColors.defaultContainerColor,
                         ),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .background(
+                                MaterialTheme.colorScheme.surfaceContainer,
+                                RoundedCornerShape(28.dp),
+                            )
+                            .padding(horizontal = 12.dp),
                 )
             }
         }
@@ -1503,9 +1513,18 @@ fun QuickSettingsLayout(
                 Box(modifier = Modifier.weight(1f)) { media() }
             }
         } else {
-            tiles()
             if (showSlider != 0 && !sliderAtTop) {
-                brightness()
+                // Keep the page dots and edit button under the slider: the paginated grid shows the
+                // slider itself, between its pager and its footer. Other grids have no footer to
+                // reorder, so the slider simply follows them.
+                val slot = remember { QsBelowPagerSlot() }
+                slot.content = brightness
+                CompositionLocalProvider(LocalQsBelowPagerSlot provides slot) { tiles() }
+                if (!slot.shown) {
+                    brightness()
+                }
+            } else {
+                tiles()
             }
             media()
         }

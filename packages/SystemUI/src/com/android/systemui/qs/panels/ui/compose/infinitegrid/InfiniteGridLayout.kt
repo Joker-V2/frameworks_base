@@ -130,6 +130,7 @@ constructor(
                     isVisible = listening,
                     requestToggleTextFeedback = textFeedbackViewModel::requestShowFeedback,
                     enableRevealEffect = enableRevealEffect,
+                    showIconLabel = true,
                 )
             }
         }

@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -105,7 +106,7 @@ import com.android.systemui.brightness.ui.compose.AnimationSpecs.IconAppearSpec
 import com.android.systemui.brightness.ui.compose.AnimationSpecs.IconDisappearSpec
 import com.android.systemui.brightness.ui.compose.InternalDimensions.IconPadding
 import com.android.systemui.brightness.ui.compose.InternalDimensions.SliderTrackRoundedCorner
-import com.android.systemui.brightness.ui.compose.InternalDimensions.ThumbTrackGapSize
+import com.android.systemui.brightness.ui.compose.InternalDimensions.IconStartPadding
 import com.android.systemui.brightness.ui.viewmodel.BrightnessSliderViewModel
 import com.android.systemui.brightness.ui.viewmodel.Drag
 import com.android.systemui.common.shared.colors.SystemUISliderColors
@@ -280,14 +281,8 @@ fun BrightnessSlider(
                     }
                 },
         interactionSource = interactionSource,
-        thumb = {
-            SliderDefaults.Thumb(
-                interactionSource = interactionSource,
-                enabled = enabled,
-                thumbSize = DpSize(dimensions.thumbWidth, dimensions.thumbHeight),
-                colors = colors,
-            )
-        },
+        // No thumb: the pill fill itself shows the level.
+        thumb = { Spacer(Modifier) },
         track = { sliderState ->
             var showIconActive by remember { mutableStateOf(true) }
             val iconActiveAlphaAnimatable = remember {
@@ -329,42 +324,27 @@ fun BrightnessSlider(
                         .drawWithContent {
                             drawContent()
 
+                            val iconWidth = iconSize.toSize().width
                             val yOffset = size.height / 2 - iconSize.toSize().height / 2
-                            val activeTrackStart = 0f
-                            val activeTrackEnd =
-                                size.width * sliderState.coercedValueAsFraction -
-                                    ThumbTrackGapSize.toPx()
-                            val inactiveTrackStart = activeTrackEnd + ThumbTrackGapSize.toPx() * 2
-                            val inactiveTrackEnd = size.width
-
-                            val activeTrackWidth = activeTrackEnd - activeTrackStart
-                            val inactiveTrackWidth = inactiveTrackEnd - inactiveTrackStart
-
-                            if (
-                                iconSize.toSize().width <
-                                    inactiveTrackWidth - IconPadding.toPx() * 2
-                            ) {
-                                showIconActive = false
-                                trackIcon(
-                                    Offset(inactiveTrackEnd, yOffset),
-                                    inactiveIconColor,
-                                    iconInactiveAlphaAnimatable.value,
-                                )
-                            } else if (
-                                iconSize.toSize().width < activeTrackWidth - IconPadding.toPx() * 2
-                            ) {
-                                showIconActive = true
-                                trackIcon(
-                                    Offset(activeTrackEnd, yOffset),
-                                    activeIconColor,
-                                    iconActiveAlphaAnimatable.value,
-                                )
-                            }
+                            // trackIcon takes the icon's right edge; pin the icon to the pill start.
+                            val iconEnd = IconStartPadding.toPx() + iconWidth + IconPadding.toPx()
+                            val fillEnd = size.width * sliderState.coercedValueAsFraction
+                            showIconActive = fillEnd >= iconEnd
+                            trackIcon(
+                                Offset(iconEnd, yOffset),
+                                activeIconColor,
+                                iconActiveAlphaAnimatable.value,
+                            )
+                            trackIcon(
+                                Offset(iconEnd, yOffset),
+                                inactiveIconColor,
+                                iconInactiveAlphaAnimatable.value,
+                            )
                         },
                 trackCornerSize = SliderTrackRoundedCorner,
-                trackInsideCornerSize = 2.dp,
+                trackInsideCornerSize = SliderTrackRoundedCorner,
                 drawStopIndicator = null,
-                thumbTrackGapSize = ThumbTrackGapSize,
+                thumbTrackGapSize = 0.dp,
                 colors = colors,
             )
         },
@@ -441,8 +421,8 @@ private fun drawAutoBrightnessButton(
     IconButton(
         onClick = { coroutineScope.launch { onIconClick() } },
         modifier = Modifier
-            .size(52.dp)
-            .clip(CircleShape)
+            .size(44.dp)
+            .clip(RoundedCornerShape(if (autoMode) 14.dp else 22.dp))
             .background(backgroundColor)
     ) {
         Icon(
@@ -583,7 +563,7 @@ data class BrightnessSliderDimensions(
                 iconSize = DpSize(28.dp, 28.dp),
                 thumbHeight = 52.dp,
                 thumbWidth = 4.dp,
-                trackHeight = 40.dp,
+                trackHeight = 44.dp,
                 verticalPadding = 6.dp,
                 backgroundRoundedCorner = 24.dp,
                 backgroundFrameWidth = 10.dp,
@@ -593,9 +573,10 @@ data class BrightnessSliderDimensions(
 }
 
 private object InternalDimensions {
-    val SliderTrackRoundedCorner = 12.dp
+    // Half the track height, so the track is a full pill.
+    val SliderTrackRoundedCorner = 22.dp
     val IconPadding = 6.dp
-    val ThumbTrackGapSize = 6.dp
+    val IconStartPadding = 10.dp
 }
 
 private object AnimationSpecs {

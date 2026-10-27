@@ -16,11 +16,14 @@
 
 package com.android.systemui.qs.ui.composable
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.android.compose.animation.scene.ContentScope
 import com.android.compose.gesture.gesturesDisabled
@@ -74,7 +78,12 @@ fun ContentScope.QuickSettingsContent(
                                     ContainerColors.defaultContainerColor,
                                 ),
                             modifier =
-                                Modifier.padding(
+                                Modifier.background(
+                                        MaterialTheme.colorScheme.surfaceContainer,
+                                        RoundedCornerShape(28.dp),
+                                    )
+                                    .padding(horizontal = 12.dp)
+                                    .padding(
                                         vertical =
                                             dimensionResource(id = R.dimen.qs_brightness_margin_top)
                                     )
@@ -160,8 +169,8 @@ private fun QuickSettingsPanelLayout(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = modifier,
         ) {
-            brightness()
             tiles()
+            brightness()
             media()
         }
     }

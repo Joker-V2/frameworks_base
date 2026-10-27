@@ -25,7 +25,9 @@ import android.service.quicksettings.Tile.STATE_ACTIVE
 import android.service.quicksettings.Tile.STATE_INACTIVE
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,11 +38,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -56,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
@@ -65,8 +72,11 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.trace
 import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.compose.animation.Expandable
@@ -134,6 +144,7 @@ private val TileViewModel.traceName
  * @param detailsViewModel An optional [DetailsViewModel] used to handle navigation to a detailed
  *   view when a tile is clicked, if applicable.
  * @param enableRevealEffect If `true`, the tiles will animate using the reveal animation.
+ * @param showIconLabel If `true`, icon only tiles show their label below the tile surface.
  */
 @Composable
 fun ContentScope.Tile(
@@ -148,6 +159,7 @@ fun ContentScope.Tile(
     requestToggleTextFeedback: (TileSpec) -> Unit = {},
     detailsViewModel: DetailsViewModel?,
     enableRevealEffect: Boolean = false,
+    showIconLabel: Boolean = false,
 ) {
     trace(tile.traceName) {
         val currentBounceableInfo by rememberUpdatedState(bounceableInfo)
@@ -213,9 +225,10 @@ fun ContentScope.Tile(
         val expandable =
             if (dynamicTargetResolutionEnabled()) tile.expandable
             else remember { Expandable(mutableSetOf()) }
+        val tileContent: @Composable (Modifier) -> Unit = { tileModifier ->
         Tooltip(
             text = uiState.label,
-            modifier = modifier,
+            modifier = tileModifier,
             enabled = Flags.enableQsTileTooltips(),
         ) { modifier ->
             TileExpandable(
@@ -349,6 +362,29 @@ fun ContentScope.Tile(
                     }
                 }
             }
+        }
+        }
+        if (showIconLabel && iconOnly) {
+            Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+                // Keep the tile surface square so it reads as a circle above its label.
+                tileContent(Modifier.widthIn(max = TileHeight))
+                BasicText(
+                    text = uiState.label,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style =
+                        MaterialTheme.typography.labelSmall.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center,
+                        ),
+                    modifier =
+                        Modifier.padding(top = 6.dp).graphicsLayer {
+                            alpha = squishiness().coerceIn(0f, 1f)
+                        },
+                )
+            }
+        } else {
+            tileContent(modifier)
         }
     }
 }
@@ -640,13 +676,23 @@ private object TileDefaults {
 
     @Composable
     fun animateShapeAsState(targetValue: Dp, label: String): State<RoundedCornerShape> {
-        val animatedCornerRadius by animateDpAsState(targetValue = targetValue, label = label)
+        // A springy morph so tiles pop between a circle and a rounded square.
+        val animatedCornerRadius by
+            animateDpAsState(
+                targetValue = targetValue,
+                animationSpec =
+                    spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                label = label,
+            )
 
         return remember {
             val corner =
                 object : CornerSize {
                     override fun toPx(shapeSize: Size, density: Density): Float {
-                        return with(density) { animatedCornerRadius.toPx() }
+                        return with(density) { animatedCornerRadius.toPx() }.coerceAtLeast(0f)
                     }
                 }
             mutableStateOf(RoundedCornerShape(corner))

@@ -29,7 +29,12 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -148,6 +153,12 @@ constructor(
                     )
                 }
             }
+            val belowPager = LocalQsBelowPagerSlot.current
+            if (belowPager != null) {
+                belowPager.shown = true
+                DisposableEffect(belowPager) { onDispose { belowPager.shown = false } }
+                belowPager.content()
+            }
             FooterBar(
                 buildNumberViewModelFactory = viewModel.buildNumberViewModelFactory,
                 pagerState = pagerState,
@@ -158,6 +169,20 @@ constructor(
         }
     }
 }
+
+/**
+ * Content a host wants between the tile pager and the page dots / edit button, for example the
+ * brightness slider when it is set to the bottom. A layout that has no such footer ignores it, so
+ * the host checks [shown] and places the content itself.
+ */
+class QsBelowPagerSlot {
+    var content: @Composable () -> Unit by mutableStateOf({})
+
+    /** True while a paginated grid is showing [content]. */
+    var shown = false
+}
+
+val LocalQsBelowPagerSlot = compositionLocalOf<QsBelowPagerSlot?> { null }
 
 private object Dimensions {
     val FooterHeight = 48.dp
