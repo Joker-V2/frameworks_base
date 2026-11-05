@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     Copyright (C) 2026 The Joker Project
+
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+-->
+<resources>
+    <!-- QS panel header: distance from the top of the header to the status row, which sits
+         below the 32dp panel buttons -->
+    <dimen name="qs_coloros_header_status_top">78dp</dimen>
+    <!-- QS panel header: room reserved above the first row of tiles -->
+    <dimen name="qs_coloros_header_height">76dp</dimen>
+
+    <!-- QS panel: shown in the media card slot while nothing is playing -->
+    <string name="qs_coloros_no_media">Not playing</string>
+    <!-- QS panel editor: title, hint and the label of the tiles that are not in use yet -->
+    <string name="qs_coloros_edit_title">Edit</string>
+    <string name="qs_coloros_edit_hint">Hold and drag to rearrange</string>
+    <string name="qs_coloros_edit_more">More tiles</string>
+</resources>

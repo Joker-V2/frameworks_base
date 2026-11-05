@@ -32,6 +32,7 @@ import android.animation.ValueAnimator;
 import android.annotation.IntDef;
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Handler;
 import android.util.Log;
@@ -1694,7 +1695,27 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
     }
 
     private int getShadePanelColor() {
+        if (isPanelBackdrop() && isNightMode()) {
+            // The QS panel draws the glass behind the shade itself, a blur region of the panel
+            // material, and the color of the scrim on top of it would only dim it. The light panel
+            // keeps its color: the glass does not lift a dark wallpaper enough for the dark text
+            // of the light theme to be read on it.
+            return Color.TRANSPARENT;
+        }
         return ShadeColors.shadePanel(mContext, isBlurCurrentlySupported(), true);
+    }
+
+    /**
+     * Whether the shade has the glass of the QS panel behind it. It is drawn by the QS fragment
+     * under the same conditions: blur that can be used.
+     */
+    private boolean isPanelBackdrop() {
+        return Flags.notificationShadeBlur() && isBlurCurrentlySupported();
+    }
+
+    private boolean isNightMode() {
+        return (mContext.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
     }
 
     private void onThemeChanged() {
