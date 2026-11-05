@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2025 The Android Open Source Project
+ * Copyright (C) 2026 crDroid Android Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,98 +18,101 @@
 package com.android.systemui.shade.ui
 
 import android.content.Context
+import android.content.res.Configuration
 import com.android.internal.graphics.ColorUtils
-import com.android.systemui.res.R
+import com.android.internal.graphics.cam.Cam
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
+/**
+ * Glass colors of the shade, the lock screen bouncer and the notification scrim: near-neutral and
+ * translucent, so the blurred wallpaper behind the shade carries the color.
+ *
+ * All numbers are in CAM16/HCT space (tone = L*, 0..100), so the visual weight is the same for
+ * every wallpaper. sRGB blending (blendARGB) can't guarantee that.
+ */
 object ShadeColors {
-    /**
-     * Calculate notification shade panel color.
-     *
-     * @param context Context to resolve colors.
-     * @param blurSupported Whether blur is enabled (can be off due to battery saver)
-     * @param withScrim Whether to composite a scrim when blur is enabled (used by legacy shade).
-     * @return color for the shade panel.
-     */
+
+    private class Spec(
+        // Blur path: translucent panel laid over blurred content
+        val panelTone: Float,
+        val panelChroma: Float,
+        val panelAlpha: Float,
+        val maxAlpha: Float,
+        // No-blur path: opaque panel
+        val fallbackTone: Float,
+        val fallbackChroma: Float,
+        // Notification card/scrim tone offset from the panel, keeps the two layers apart
+        val cardToneDelta: Float,
+        val cardAlpha: Float,
+    )
+
+    private val NIGHT = Spec(8f, 4f, 0.40f, 0.72f, 10f, 4f, 8f, 0.30f)
+    private val DAY = Spec(98f, 2f, 0.55f, 0.80f, 95f, 3f, -5f, 0.45f)
+
+    private fun spec(context: Context): Spec = if (isNight(context)) NIGHT else DAY
+
     @JvmStatic
     fun shadePanel(context: Context, blurSupported: Boolean, withScrim: Boolean): Int {
-        return if (blurSupported) {
-            if (withScrim) {
-                ColorUtils.compositeColors(
-                    shadePanelStandard(context),
-                    shadePanelScrimBehind(context),
-                )
-            } else {
-                shadePanelStandard(context)
-            }
-        } else {
-            shadePanelFallback(context)
-        }
+        val s = spec(context)
+        if (!blurSupported) return hct(context, s.fallbackChroma, s.fallbackTone, 1f)
+        return legible(context, hct(context, s.panelChroma, s.panelTone, s.panelAlpha), s)
     }
 
     @JvmStatic
     fun notificationScrim(context: Context, blurSupported: Boolean): Int {
+        val s = spec(context)
         return if (blurSupported) {
-            notificationScrimStandard(context)
+            hct(context, s.panelChroma, s.panelTone + s.cardToneDelta, s.cardAlpha)
         } else {
-            notificationScrimFallback(context)
+            // Opaque, and always a visible step away from the panel
+            hct(context, s.fallbackChroma, s.fallbackTone + s.cardToneDelta, 1f)
         }
     }
 
     @JvmStatic
-    fun shadePanelScrimBehind(context: Context): Int {
-        return context.resources.getColor(
-            com.android.internal.R.color.shade_panel_scrim,
-            context.theme,
-        )
-    }
+    fun shadePanelScrimBehind(context: Context): Int =
+        context.resources.getColor(com.android.internal.R.color.shade_panel_scrim, context.theme)
 
-    /**
-     * Background color of the rounded cornered rect behind Notifications in Single- or SplitShade.
-     */
     @JvmStatic
     fun classicShadeNotificationScrimBg(
         context: Context,
         blurSupported: Boolean,
         composited: Boolean,
     ): Int {
-        val surfaceEffect0Color =
-            context.resources.getColor(
-                com.android.internal.R.color.customColorSurfaceEffect0,
-                context.theme,
-            )
-        if (!composited) {
-            // SplitShade (avoid adding the shade panel with scrim)
-            return surfaceEffect0Color
+        val card = notificationScrim(context, blurSupported)
+        if (!composited) return card
+        return ColorUtils.compositeColors(card, shadePanel(context, blurSupported, true))
+    }
+
+    /** Raises the panel alpha until the text on it reaches 4.5:1 against the darkest backdrop. */
+    private fun legible(context: Context, panel: Int, s: Spec): Int {
+        val night = isNight(context)
+        val text = context.getColor(
+            if (night) android.R.color.system_neutral1_50 else android.R.color.system_neutral1_900)
+        val backdrop = Cam.getInt(neutralHue(context), 6f, if (night) 82f else 22f)
+        var alpha = (panel ushr 24) / 255f
+        val opaque = ColorUtils.setAlphaComponent(panel, 255)
+        while (alpha < s.maxAlpha) {
+            val c = ColorUtils.setAlphaComponent(opaque, (alpha * 255).roundToInt())
+            if (ColorUtils.calculateContrast(text, ColorUtils.compositeColors(c, backdrop)) >= 4.5) {
+                break
+            }
+            alpha += 0.03f
         }
-        // SingleShade
-        val shadePanelWithScrim = shadePanel(context, blurSupported, withScrim = true)
-        return ColorUtils.compositeColors(surfaceEffect0Color, shadePanelWithScrim)
+        return ColorUtils.setAlphaComponent(opaque, (min(alpha, s.maxAlpha) * 255).roundToInt())
     }
 
-    @JvmStatic
-    private fun shadePanelStandard(context: Context): Int {
-        val layerAbove =
-            context.resources.getColor(com.android.internal.R.color.shade_panel_fg, context.theme)
-        val layerBelow =
-            context.resources.getColor(com.android.internal.R.color.shade_panel_bg, context.theme)
-        return ColorUtils.compositeColors(layerAbove, layerBelow)
+    private fun hct(context: Context, chroma: Float, tone: Float, alpha: Float): Int {
+        val argb = Cam.getInt(neutralHue(context), chroma, tone.coerceIn(0f, 100f))
+        return ColorUtils.setAlphaComponent(argb, (max(0f, min(1f, alpha)) * 255).roundToInt())
     }
 
-    @JvmStatic
-    private fun shadePanelFallback(context: Context): Int {
-        return context.getColor(R.color.shade_panel_fallback)
-    }
+    private fun neutralHue(context: Context): Float =
+        Cam.fromInt(context.getColor(android.R.color.system_neutral1_500)).hue
 
-    @JvmStatic
-    private fun notificationScrimStandard(context: Context): Int {
-        return ColorUtils.setAlphaComponent(
-            context.getColor(R.color.notification_scrim_base),
-            (0.5f * 255).toInt(),
-        )
-    }
-
-    @JvmStatic
-    private fun notificationScrimFallback(context: Context): Int {
-        return context.getColor(R.color.notification_scrim_fallback)
-    }
+    private fun isNight(context: Context): Boolean =
+        (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
 }

@@ -30,6 +30,7 @@ import android.os.Trace
 import android.os.Trace.TRACE_TAG_APP
 import android.provider.AlarmClock
 import android.view.DisplayCutout
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -262,6 +263,9 @@ constructor(
 
     private var singleCarrier = false
 
+    /** The QS panel style gives the expanded header one row: the panel buttons, then the status. */
+    private val colorOSStyle = true
+
     private val demoModeReceiver =
         object : DemoMode {
             override fun demoCommands() = listOf(DemoMode.COMMAND_CLOCK)
@@ -346,6 +350,10 @@ constructor(
         }
 
     override fun onInit() {
+        // The ColorOS status row sits below the fixed height of the header, so the header must
+        // not clip it.
+        header.clipChildren = false
+        header.clipToPadding = false
         variableDateViewControllerFactory.create(date as VariableDateView).init()
 
         val fgColor = getFgColor()
@@ -489,7 +497,10 @@ constructor(
             .load(context, resources.getXml(R.xml.qqs_header))
         header
             .getConstraintSet(QS_HEADER_CONSTRAINT)
-            .load(context, resources.getXml(R.xml.qs_header))
+            .load(
+                context,
+                resources.getXml(if (colorOSStyle) R.xml.qs_header_coloros else R.xml.qs_header),
+            )
         header
             .getConstraintSet(LARGE_SCREEN_HEADER_CONSTRAINT)
             .load(context, resources.getXml(R.xml.large_screen_shade_header))
@@ -508,9 +519,21 @@ constructor(
 
     private fun updateCarrierGroupPadding() {
         clock.doOnLayout {
+            // The ColorOS header hides the clock in the expanded state, so the carrier name
+            // starts at the edge.
             val maxClockWidth =
-                (clock.width * resources.getFloat(R.dimen.qqs_expand_clock_scale)).toInt()
+                if (colorOSStyle) {
+                    0
+                } else {
+                    (clock.width * resources.getFloat(R.dimen.qqs_expand_clock_scale)).toInt()
+                }
             mShadeCarrierGroup.setPaddingRelative(maxClockWidth, 0, 0, 0)
+            mShadeCarrierGroup.gravity =
+                if (colorOSStyle) {
+                    Gravity.START or Gravity.CENTER_VERTICAL
+                } else {
+                    Gravity.END or Gravity.CENTER_VERTICAL
+                }
         }
     }
 

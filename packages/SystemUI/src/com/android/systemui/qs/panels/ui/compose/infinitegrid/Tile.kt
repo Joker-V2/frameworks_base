@@ -23,6 +23,11 @@ import android.content.res.Resources
 import android.os.Trace
 import android.service.quicksettings.Tile.STATE_ACTIVE
 import android.service.quicksettings.Tile.STATE_INACTIVE
+import android.service.quicksettings.Tile.STATE_UNAVAILABLE
+import androidx.compose.foundation.border
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.draw.alpha
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -67,6 +72,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.trace
 import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.compose.animation.Expandable
@@ -93,6 +99,7 @@ import com.android.systemui.qs.panels.ui.compose.infinitegrid.CommonTileDefaults
 import com.android.systemui.qs.panels.ui.compose.infinitegrid.CommonTileDefaults.InactiveIconCornerRadius
 import com.android.systemui.qs.panels.ui.compose.infinitegrid.CommonTileDefaults.InactiveTileCornerRadius
 import com.android.systemui.qs.panels.ui.compose.infinitegrid.CommonTileDefaults.TileHeight
+import com.android.systemui.qs.panels.ui.compose.infinitegrid.CommonTileDefaults.ToggleTargetSize
 import com.android.systemui.qs.panels.ui.compose.infinitegrid.CommonTileDefaults.longPressLabelMoreDetails
 import com.android.systemui.qs.panels.ui.compose.infinitegrid.CommonTileDefaults.longPressLabelSettings
 import com.android.systemui.qs.panels.ui.viewmodel.AccessibilityUiState
@@ -114,6 +121,26 @@ import platform.test.motion.compose.values.motionTestValues
 private val TileViewModel.traceName
     get() = spec.toString().takeLast(Trace.MAX_SECTION_NAME_LEN)
 
+/** The panel style: glass tiles, round icon tiles with their labels below. Always on. */
+internal val LocalColorOSQsStyle = compositionLocalOf { true }
+
+private val COLOROS_DATA_TILES = setOf("cell", "mobile_data", "mobiledata")
+
+/** Tiles that are marked with a small down chevron after the label, as they open more. */
+private val COLOROS_DROPDOWN_TILES =
+    COLOROS_DATA_TILES + setOf("dnd", "screenrecord", "hotspot", "screenshot")
+
+/**
+ * The label under a round ColorOS tile. The mobile data tile is named after the SIM there, the
+ * network name its state carries, and is only called by its own name while there is none.
+ */
+private fun colorOSRoundTileLabel(spec: String, uiState: TileUiState): String =
+    if (spec in COLOROS_DATA_TILES && uiState.secondaryLabel.isNotBlank()) {
+        uiState.secondaryLabel
+    } else {
+        uiState.label
+    }
+
 /**
  * This composable function is responsible for rendering a tile based on the provided
  * [TileViewModel]. It handles different states of the tile (e.g., available, unavailable),
@@ -134,6 +161,9 @@ private val TileViewModel.traceName
  * @param detailsViewModel An optional [DetailsViewModel] used to handle navigation to a detailed
  *   view when a tile is clicked, if applicable.
  * @param enableRevealEffect If `true`, the tiles will animate using the reveal animation.
+ * @param hideLabel If `true`, the label of a ColorOS style icon tile is not drawn (QQS shows only
+ *   the round icons), whatever the tile label setting says. Ignored for the other panel styles,
+ *   which follow the tile label setting.
  */
 @Composable
 fun ContentScope.Tile(
@@ -148,6 +178,7 @@ fun ContentScope.Tile(
     requestToggleTextFeedback: (TileSpec) -> Unit = {},
     detailsViewModel: DetailsViewModel?,
     enableRevealEffect: Boolean = false,
+    hideLabel: Boolean = false,
 ) {
     trace(tile.traceName) {
         val currentBounceableInfo by rememberUpdatedState(bounceableInfo)
@@ -169,7 +200,14 @@ fun ContentScope.Tile(
                 tile.state.collect { value = it.toIconProvider() }
             }
 
-        val colors = TileDefaults.getColorForState(uiState, iconOnly)
+        val colorOSStyle = LocalColorOSQsStyle.current
+        val roundTile = colorOSStyle && iconOnly
+        val colors =
+            if (colorOSStyle) {
+                colorOSColorsForState(uiState, iconOnly)
+            } else {
+                TileDefaults.getColorForState(uiState, iconOnly)
+            }
         val hapticsViewModel: TileHapticsViewModel =
             rememberViewModel(traceName = "TileHapticsViewModel") {
                 tileHapticsViewModelFactory.create(tile)
@@ -210,6 +248,29 @@ fun ContentScope.Tile(
             contentRevealModifier = Modifier
         }
 
+        // Where SurfaceFlinger can blur behind the shade, the glass of a wide tile is a blur region
+        // and not a flat fill.
+        val glassBlur = LocalColorOSGlassBlur.current
+        val glassPill = colorOSStyle && !iconOnly && glassBlur != null
+        // The round tile draws its own circle, so the container around it and its label is
+        // transparent. The tile that cannot be used fades as a whole, glass included.
+        val colorOSDimmed = roundTile && uiState.visualState == STATE_UNAVAILABLE
+        val tileGlassBlur =
+            remember(glassBlur, colorOSDimmed) {
+                if (glassBlur != null && colorOSDimmed) {
+                    ColorOSGlassBlur { glassBlur.alpha() * ColorOSUnavailableAlpha }
+                } else {
+                    glassBlur
+                }
+            }
+        val outerShape = if (roundTile && !hideLabel) RoundedCornerShape(0.dp) else tileShape
+        val outerColor: () -> Color =
+            if (roundTile || glassPill) {
+                { Color.Transparent }
+            } else {
+                { animatedColor }
+            }
+
         val expandable =
             if (dynamicTargetResolutionEnabled()) tile.expandable
             else remember { Expandable(mutableSetOf()) }
@@ -220,13 +281,33 @@ fun ContentScope.Tile(
         ) { modifier ->
             TileExpandable(
                 expandable = expandable,
-                color = { animatedColor },
-                shape = tileShape,
+                color = outerColor,
+                shape = outerShape,
                 squishiness = squishiness,
                 hapticsViewModel = hapticsViewModel,
                 modifier =
                     modifier
+                        .then(
+                            if (colorOSStyle) Modifier.colorOSPress(interactionSource)
+                            else Modifier
+                        )
                         .then(surfaceRevealModifier)
+                        .then(
+                            if (glassPill) {
+                                Modifier.colorOSGlassBlur(tileShape, colorOSGlassTileMaterial())
+                            } else if (colorOSStyle && !iconOnly) {
+                                Modifier.border(1.dp, ColorOSTileRim, tileShape)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .then(
+                            if (colorOSStyle && !iconOnly) {
+                                Modifier.colorOSSpotLight(tileShape, ColorOSSpotLightMedium)
+                            } else {
+                                Modifier
+                            }
+                        )
                         .borderOnFocus(
                             color = MaterialTheme.colorScheme.secondary,
                             tileShape.topEnd,
@@ -239,7 +320,8 @@ fun ContentScope.Tile(
                             currentBounceableInfo.nextTile,
                             orientation = Orientation.Horizontal,
                             bounceEnd = currentBounceableInfo.bounceEnd,
-                            interactionSource = interactionSource,
+                            // ColorOS presses with colorOSPress instead of the width bounce.
+                            interactionSource = interactionSource.takeIf { !colorOSStyle },
                         ),
             ) { expandable ->
                 // Use main click on long press for small, available dual target tiles.
@@ -268,7 +350,14 @@ fun ContentScope.Tile(
                 // dual target tile. These don't toggle on main click.
                 val bounceContainer = uiState.isToggleable && (iconOnly || !isDualTarget)
                 TileContainer(
-                    interactionSource = interactionSource.takeIf { bounceContainer },
+                    interactionSource = interactionSource.takeIf { bounceContainer || colorOSStyle },
+                    height =
+                        if (roundTile) {
+                            LocalColorOSTileSize.current +
+                                if (hideLabel) 0.dp else CommonTileDefaults.ClassicLabelHeight
+                        } else {
+                            null
+                        },
                     onClick = onClick@{
                             if (!isClickable) return@onClick
 
@@ -309,7 +398,28 @@ fun ContentScope.Tile(
                     modifier = contentRevealModifier,
                 ) {
                     val iconProvider: Context.() -> Icon = { getTileIcon(icon = icon) }
-                    if (iconOnly) {
+                    if (roundTile) {
+                        CompositionLocalProvider(LocalColorOSGlassBlur provides tileGlassBlur) {
+                            ColorOSRoundTileContent(
+                                label = colorOSRoundTileLabel(tile.spec.spec, uiState),
+                                iconProvider = iconProvider,
+                                colors = colors,
+                                spec = tile.spec.spec,
+                                active = uiState.visualState == STATE_ACTIVE,
+                                labelHide = hideLabel,
+                                chevron = tile.spec.spec in COLOROS_DROPDOWN_TILES,
+                                modifier =
+                                    Modifier.align(Alignment.TopCenter)
+                                        .bounceScale {
+                                            currentBounceableInfo.bounceable.iconBounceScale
+                                        }
+                                        .then(
+                                            if (colorOSDimmed) Modifier.alpha(ColorOSUnavailableAlpha)
+                                            else Modifier
+                                        ),
+                            )
+                        }
+                    } else if (iconOnly) {
                         SmallTileContent(
                             iconProvider = iconProvider,
                             color = colors.icon,
@@ -337,6 +447,8 @@ fun ContentScope.Tile(
                             iconShape = iconShape,
                             toggleClick = secondaryClick,
                             onLongClick = longClick,
+                            lottieSpec = tile.spec.spec.takeIf { colorOSStyle },
+                            active = uiState.visualState == STATE_ACTIVE,
                             accessibilityUiState = uiState.accessibilityUiState,
                             squishiness = squishiness,
                             isVisible = isVisible,
@@ -386,12 +498,13 @@ fun TileContainer(
     isDualTarget: Boolean,
     interactionSource: MutableInteractionSource?,
     modifier: Modifier = Modifier,
+    height: Dp? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(
         modifier =
             modifier
-                .height(TileHeight)
+                .height(height ?: TileHeight)
                 .fillMaxWidth()
                 .tileCombinedClickable(
                     onClick = onClick ?: {},
@@ -609,6 +722,7 @@ private object TileDefaults {
 
     @Composable
     fun iconRadius(uiState: TileUiState): Dp {
+        if (LocalColorOSQsStyle.current) return ToggleTargetSize / 2
         return when (uiState.visualState) {
             STATE_ACTIVE -> ActiveIconCornerRadius
             STATE_INACTIVE -> InactiveIconCornerRadius
@@ -618,6 +732,7 @@ private object TileDefaults {
 
     @Composable
     fun tileRadius(uiState: TileUiState): Dp {
+        if (LocalColorOSQsStyle.current) return TileHeight / 2
         return when (uiState.visualState) {
             STATE_ACTIVE -> ActiveTileCornerRadius
             STATE_INACTIVE -> InactiveTileCornerRadius

@@ -17,11 +17,13 @@
 package com.android.systemui.qs.panels.ui.compose
 
 import androidx.compose.foundation.layout.Arrangement.spacedBy
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.pager.HorizontalPager
@@ -49,6 +51,11 @@ import com.android.systemui.lifecycle.rememberViewModel
 import com.android.systemui.qs.panels.dagger.PaginatedBaseLayoutType
 import com.android.systemui.qs.panels.ui.compose.Dimensions.FooterHeight
 import com.android.systemui.qs.panels.ui.compose.Dimensions.InterPageSpacing
+import com.android.systemui.qs.panels.ui.compose.infinitegrid.ColorOSGridColumns
+import com.android.systemui.qs.panels.ui.compose.infinitegrid.ColorOSGridFooterHeight
+import com.android.systemui.qs.panels.ui.compose.infinitegrid.ColorOSGridHeadroom
+import com.android.systemui.qs.panels.ui.compose.infinitegrid.LocalColorOSGridRows
+import com.android.systemui.qs.panels.ui.compose.infinitegrid.LocalColorOSQsStyle
 import com.android.systemui.qs.panels.ui.compose.toolbar.EditModeButton
 import com.android.systemui.qs.panels.ui.viewmodel.PaginatedGridViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.TileViewModel
@@ -78,10 +85,22 @@ constructor(
                 delegateGridLayout.viewModelFactory.create()
             }
 
-        val rows = integerResource(R.integer.quick_settings_paginated_grid_num_rows)
+        // The panel style shows every grid tile as a 1-column round tile, so pages are plain
+        // chunks of rows x columns, with fewer rows so the panel does not need to scroll.
+        val colorOSStyle = LocalColorOSQsStyle.current
+        val rows =
+            if (colorOSStyle) {
+                LocalColorOSGridRows.current
+            } else {
+                integerResource(R.integer.quick_settings_paginated_grid_num_rows)
+            }
         val pages =
-            remember(tiles, rows, *delegateGridViewModel.pageKeys) {
-                delegateGridViewModel.splitIntoPages(tiles, rows)
+            remember(tiles, rows, colorOSStyle, *delegateGridViewModel.pageKeys) {
+                if (colorOSStyle) {
+                    tiles.chunked(rows * ColorOSGridColumns)
+                } else {
+                    delegateGridViewModel.splitIntoPages(tiles, rows)
+                }
             }
 
         val pagerState = rememberPagerState(0) { pages.size }
@@ -111,7 +130,12 @@ constructor(
                 } else {
                     0.dp
                 }
-            val contentPadding = PaddingValues(horizontal = contentPaddingValue)
+            val contentPadding =
+                PaddingValues(
+                    start = contentPaddingValue,
+                    end = contentPaddingValue,
+                    top = if (colorOSStyle) ColorOSGridHeadroom else 0.dp,
+                )
             val nestedScrollConnection =
                 remember(viewModel) {
                     object : NestedScrollConnection {
@@ -160,7 +184,7 @@ constructor(
 }
 
 private object Dimensions {
-    val FooterHeight = 48.dp
+    val FooterHeight = ColorOSGridFooterHeight
     val InterPageSpacing = 16.dp
 }
 
@@ -176,6 +200,28 @@ private fun FooterBar(
         rememberViewModel(traceName = "PaginatedGridLayout-editButtonViewModel") {
             editButtonViewModelFactory.create()
         }
+
+    // The panel has no footer: the build number and the edit button are not shown (the panel
+    // buttons are in the header), only the page dots stay, centered below the grid. They are round
+    // dots, the current page is not a wider pill.
+    if (LocalColorOSQsStyle.current) {
+        Box(
+            modifier = Modifier.requiredHeight(FooterHeight).fillMaxWidth().padding(top = 4.5.dp),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            PagerDots(
+                pagerState = pagerState,
+                activeColor = MaterialTheme.colorScheme.onSurface,
+                nonActiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f),
+                dotSize = 7.5.dp,
+                spaceSize = 8.5.dp,
+                showArrows = false,
+                clickToCyclePages = true,
+                roundDots = true,
+            )
+        }
+        return
+    }
 
     // Use requiredHeight so it won't be squished if the view doesn't quite fit. As this is
     // expected to be inside a scrollable container, this should not be an issue.
